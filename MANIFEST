@@ -1,0 +1,15 @@
+Build.PL
+Changes
+LICENSE
+MANIFEST
+META.json
+META.yml
+README
+cpanfile
+dist.ini
+lib/HTTP/AcceptLanguage.pm
+t/01_languages.t
+t/02_match.t
+t/999_IANA_justice_than_RFC.t
+t/basic.t
+t/release-pod-syntax.t
