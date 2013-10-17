@@ -36,15 +36,17 @@ subtest 'empty header' => sub {
     is($parser->match(qw/ ja en /), 'ja');
 };
 
+# This behavior was changed.
+# https://github.com/yappo/p5-HTTP-AcceptLanguage/issues/1
 subtest 'flat quality' => sub {
     my $parser = HTTP::AcceptLanguage->new('en, ja');
     is($parser->match(qw/ en ja /), 'en');
 
     $parser = HTTP::AcceptLanguage->new('en, ja');
-    is($parser->match(qw/ ja en /), 'ja');
+    is($parser->match(qw/ ja en /), 'en');
 
     $parser = HTTP::AcceptLanguage->new('ja, en');
-    is($parser->match(qw/ en ja /), 'en');
+    is($parser->match(qw/ en ja /), 'ja');
 
     $parser = HTTP::AcceptLanguage->new('ja, en');
     is($parser->match(qw/ ja en /), 'ja');
@@ -55,10 +57,10 @@ subtest 'prefix tag' => sub {
     is($parser->match(qw/ en /), 'en');
 
     $parser = HTTP::AcceptLanguage->new('en-us, ja');
-    is($parser->match(qw/ en ja /), 'ja');
+    is($parser->match(qw/ en ja /), 'en');
 
     $parser = HTTP::AcceptLanguage->new('en-us, ja');
-    is($parser->match(qw/ ja en /), 'ja');
+    is($parser->match(qw/ ja en /), 'en');
 
     subtest 'priority of full match' => sub {
         $parser = HTTP::AcceptLanguage->new('en-us');
@@ -76,10 +78,13 @@ subtest 'prefix tag' => sub {
 
     subtest 'order by input list' => sub {
         $parser = HTTP::AcceptLanguage->new('en-us, en');
-        is($parser->match(qw/ en en-us /), 'en');
+        is($parser->match(qw/ en en-us /), 'en-us');
 
         $parser = HTTP::AcceptLanguage->new('en-us, en');
         is($parser->match(qw/ en-us en /), 'en-us');
+
+        $parser = HTTP::AcceptLanguage->new('en-gb, en-us, en');
+        is($parser->match(qw/ en-us en /), 'en'); # same as en-gb;q=0.9, en-us;q=0.8, en;q=0.7
     };
 
     subtest 'unsupported of server side prefix tag' => sub {
@@ -102,13 +107,17 @@ subtest 'quality' => sub {
     is($parser->match(qw/ en ja en-us /), 'en');
 
     $parser = HTTP::AcceptLanguage->new('en;q=0.1, en-us;q=0.1');
-    is($parser->match(qw/ en-us ja en /), 'en-us');
+    is($parser->match(qw/ en-us ja en /), 'en');
 
     $parser = HTTP::AcceptLanguage->new('en;q=0.1, en-us;q=0.2');
     is($parser->match(qw/ en ja en-us /), 'en-us');
 
     $parser = HTTP::AcceptLanguage->new('en;q=0.2, en-us;q=0.1');
     is($parser->match(qw/ en-us ja en /), 'en');
+
+
+    $parser = HTTP::AcceptLanguage->new('th;q=0.1, ja;q=0.1, en-gb;q=0.2, en-us;q=0.2, en;q=0.1');
+    is($parser->match(qw/ en-us ja en /), 'en'); # same as en-gb;q=0.29, en-us;q=0.28, th;q=0.19, ja;q=0.18, en;q=0.17
 
     subtest 'duplicated tag is order by quality' => sub {
         $parser = HTTP::AcceptLanguage->new('ja;q=0.1, en;q=0.5, ja;q=0.6');
@@ -135,7 +144,7 @@ subtest 'wildcard' => sub {
     is($parser->match(qw/ en ja /), 'en');
 
     $parser = HTTP::AcceptLanguage->new('ja, *');
-    is($parser->match(qw/ en ja /), 'en');
+    is($parser->match(qw/ en ja /), 'ja');
 
     $parser = HTTP::AcceptLanguage->new('ja, *;q=0.3');
     is($parser->match(qw/ en ja /), 'ja');

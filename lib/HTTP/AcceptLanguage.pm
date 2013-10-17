@@ -2,7 +2,9 @@ package HTTP::AcceptLanguage;
 use strict;
 use warnings;
 use 5.008_005;
-our $VERSION = '0.01';
+our $VERSION = '0.02';
+
+our $MATCH_PRIORITY_0_01_STYLE;
 
 my $LANGUAGE_RANGE = qr/(?:[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*|\*)/;
 my $QVALUE         = qr/(?:0(?:\.[0-9]{0,3})?|1(?:\.0{0,3})?)/;
@@ -56,6 +58,7 @@ sub _parse {
 sub languages {
     my $self = shift;
     $self->{languages} ||= do {
+        use sort 'stable';
         my @languages = map { $_->{language} } sort { $b->{quality} <=> $a->{quality} } @{ $self->{parsed_header} };
         \@languages;
     };
@@ -77,14 +80,17 @@ sub match {
         return $normlized_languages[0]->{tag};
     }
 
-    $self->{sorted_parsed_header} ||= [ sort { $b->{quality} <=> $a->{quality} } @{ $self->{parsed_header} } ];
+    $self->{sorted_parsed_header} ||= do {
+        use sort 'stable';
+        [ sort { $b->{quality} <=> $a->{quality} } @{ $self->{parsed_header} } ];
+    };
 
-    # If language-quality is the same, is a priority order of the @languages
-    my %header_tags;
-    my %header_primary_tags;
-    my $current_quality = 0;
-    for my $language (@{ $self->{sorted_parsed_header} }) {
-        if ($current_quality != $language->{quality}) {
+    # If language-quality has the same value, is a priority order of the $self->{sorted_parsed_header}.
+    # If you set $MATCH_PRIORITY_0_01_STYLE=1, takes is a priority order of the @languages
+    if ($MATCH_PRIORITY_0_01_STYLE) {
+        my %header_tags;
+        my %header_primary_tags;
+        my $detect_langguage = sub {
             if (scalar(%header_tags)) {
                 # RFC give priority to full match.
                 for my $tag (@normlized_languages) {
@@ -94,22 +100,42 @@ sub match {
                     return $tag->{tag} if $header_primary_tags{$tag->{tag_lc}};
                 }
             }
-            $current_quality = $language->{quality};
+        };
+        my $current_quality = 0;
+        for my $language (@{ $self->{sorted_parsed_header} }) {
+            if ($current_quality != $language->{quality}) {
+                # check of the last quality languages
+                my $ret = $detect_langguage->();
+                return $ret if $ret;
+
+                # cleanup
+                $current_quality = $language->{quality};
+                %header_tags         = ();
+                %header_primary_tags = ();
+            }
+
+            # wildcard
+            return $normlized_languages[0]->{tag} if $language->{language} eq '*';
+
+            $header_tags{$language->{language_lc}}                 = 1;
+            $header_primary_tags{$language->{language_primary_lc}} = 1;
         }
 
-        # wildcard
-        return $normlized_languages[0]->{tag} if $language->{language} eq '*';
+        my $ret = $detect_langguage->();
+        return $ret if $ret;
+    } else {
+        # 0.02 or more
+        for my $language (@{ $self->{sorted_parsed_header} }) {
+            # wildcard
+            return $normlized_languages[0]->{tag} if $language->{language} eq '*';
 
-        $header_tags{$language->{language_lc}}                 = 1;
-        $header_primary_tags{$language->{language_primary_lc}} = 1;
-    }
-    if (scalar(%header_tags)) {
-        # RFC give priority to full match.
-        for my $tag (@normlized_languages) {
-            return $tag->{tag} if $header_tags{$tag->{tag_lc}};
-        }
-        for my $tag (@normlized_languages) {
-            return $tag->{tag} if $header_primary_tags{$tag->{tag_lc}};
+            # RFC give priority to full match.
+            for my $tag (@normlized_languages) {
+                return $tag->{tag} if $language->{language_lc} eq $tag->{tag_lc};
+            }
+            for my $tag (@normlized_languages) {
+                return $tag->{tag} if $language->{language_primary_lc} eq $tag->{tag_lc};
+            }
         }
     }
 
@@ -152,13 +178,21 @@ Good example of the input and output.
   $accept_language->match(qw/ en ja /);    # -> en
 
   my $accept_language = HTTP::AcceptLanguage->new('en, da');
-  $accept_language->match(qw/ da en /); # -> da
+  $accept_language->match(qw/ da en /); # -> en
   $accept_language->match(qw/ en da /); # -> en
 
 You can obtain the order of preference of the available languages ​​list of client
 
   my $accept_language = HTTP::AcceptLanguage->new('en, ja;q=0.3, da;q=1, *;q=0.29, ch-tw');
   $accept_language->languages; # -> en, da, ch-tw, ja, *
+
+You can use the 0.01 version spec. (next version is deplicated)
+
+  local $HTTP::AcceptLanguage::MATCH_PRIORITY_0_01_STYLE = 1;
+  
+  my $accept_language = HTTP::AcceptLanguage->new('en, da');
+  $accept_language->match(qw/ da en /); # -> da
+  $accept_language->match(qw/ en da /); # -> en
 
 =head1 DESCRIPTION
 
@@ -174,7 +208,7 @@ It to specify a string of Accept-Language header.
 
 By your available language list, returns the most optimal language.
 
-If language quality is the same, the order of the input list takes precedence.
+If language-quality has the same value, is a priority order of the new($ENV{HTTP_ACCEPT_LANGUAGE}).
 
 =head2 languages
 
